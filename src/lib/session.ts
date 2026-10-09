@@ -29,6 +29,7 @@ function secretFromEnv(): string {
 
 export function signSession(payload: SessionPayload, secret: string = secretFromEnv()): string {
   const body = b64url(Buffer.from(JSON.stringify(payload)));
+  // codeql[js/insufficient-password-hash] This HMAC authenticates session payloads; it does not hash or store passwords.
   const mac = b64url(createHmac('sha256', secret).update(body).digest());
   return `${body}.${mac}`;
 }
