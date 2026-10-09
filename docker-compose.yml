@@ -1,0 +1,26 @@
+# Local development dependencies only (no paid services).
+#   docker compose up -d   → Postgres + MailHog
+#   then: cp .env.example .env.local && npm run db:migrate && npm run dev
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hodorhub
+      POSTGRES_PASSWORD: hodorhub
+      POSTGRES_DB: hodorhub
+    ports:
+      - '5432:5432'
+    volumes:
+      - ./.data/pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U hodorhub']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Catches all outbound email in dev; UI at http://localhost:8025
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - '1025:1025'
+      - '8025:8025'

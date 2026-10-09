@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Test / coverage
+coverage/
+
+# Secrets & environment — NEVER commit real values
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Drizzle local artifacts (generated migrations ARE committed; meta journal is)
+# (kept intentionally minimal)
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Docker local volumes
+.data/
+
+# Terraform (commit .terraform.lock.hcl and *.tfvars.example only)
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+!*.tfvars.example

@@ -1,0 +1,7 @@
+project_id        = "hodorhub-prod"
+region            = "europe-west2"
+github_repository = "your-org/hodorhub"
+public_base_url   = "https://hodorhub.com"
+# image is set per-deploy by CI (SHA tag); leave default for the first apply.
+# db_tier         = "db-custom-1-3840"
+# db_ha           = false

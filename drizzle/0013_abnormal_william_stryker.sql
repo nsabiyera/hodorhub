@@ -1,0 +1,2 @@
+ALTER TABLE "deployed_environments" ADD COLUMN "promoted_by" uuid;--> statement-breakpoint
+ALTER TABLE "deployed_environments" ADD CONSTRAINT "deployed_environments_promoted_by_users_id_fk" FOREIGN KEY ("promoted_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;

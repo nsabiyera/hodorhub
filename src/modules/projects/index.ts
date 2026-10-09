@@ -1,0 +1,33 @@
+/** Public interface of the Projects bounded context. */
+export {
+  createDraftProject,
+  updateDraftProject,
+  setResourceNeeds,
+  publishProject,
+  transitionProjectStatus,
+  completeProject,
+  completeProjectSchema,
+  getProjectForOwner,
+  getPublishedProject,
+  getProjectRef,
+  getProjectSummaries,
+  beginDelivery,
+  archiveByAdmin,
+  isTransitionAllowed,
+  createProjectSchema,
+  updateDraftSchema,
+  resourceNeedSchema,
+  PROJECT_CATEGORIES,
+  setDigitalResourceNeeds,
+  digitalResourceNeedSchema,
+  DIGITAL_RESOURCE_KINDS,
+  type ProjectCategory,
+  type ProjectStatus,
+  type CreateProjectInput,
+  type UpdateDraftInput,
+  type ResourceNeedInput,
+  type DigitalResourceKind,
+  type DigitalResourceNeedInput,
+} from './service';
+
+export * from './errors';

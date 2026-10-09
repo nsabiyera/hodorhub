@@ -1,0 +1,84 @@
+# Production stack for a single VM (ADR 0001). One image, three roles.
+#   Provisioned out-of-band on the VM:
+#     /opt/hodorhub/.env.prod   (chmod 600; DATABASE_URL, APP_ENCRYPTION_KEY, SESSION_SECRET, SMTP_*)
+#   Deploy pins IMAGE_TAG to the commit SHA (see .github/workflows/deploy.yml).
+#     IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d
+x-app-image: &app-image ghcr.io/hodorhub/hodorhub:${IMAGE_TAG:-latest}
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: '10m'
+      max-file: '3'
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      POSTGRES_USER: hodorhub
+      POSTGRES_DB: hodorhub
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U hodorhub']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    <<: *logging
+
+  # One-shot: applies migrations, then exits. App waits for success.
+  migrate:
+    image: *app-image
+    command: ['node', 'dist/migrate.cjs']
+    env_file: .env.prod
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+    <<: *logging
+
+  app:
+    image: *app-image
+    command: ['node', 'server.js']
+    restart: unless-stopped
+    env_file: .env.prod
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/api/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    <<: *logging
+
+  worker:
+    image: *app-image
+    command: ['node', 'dist/worker.cjs']
+    restart: unless-stopped
+    env_file: .env.prod
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    <<: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    <<: *logging
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,58 @@
+{
+  "name": "hodorhub",
+  "version": "0.0.1",
+  "private": true,
+  "description": "HodorHub — social corporate-responsibility platform connecting charities and corporations through donated employee time.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:workers": "esbuild src/worker/index.ts --bundle --platform=node --format=cjs --outfile=dist/worker.cjs --alias:@=./src --external:pg-native --external:cloudflare:sockets --external:@node-rs/argon2 && esbuild src/db/migrate.ts --bundle --platform=node --format=cjs --outfile=dist/migrate.cjs --alias:@=./src --external:pg-native --external:cloudflare:sockets",
+    "start": "next start",
+    "worker": "tsx watch src/worker/index.ts",
+    "worker:start": "tsx src/worker/index.ts",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx --env-file=.env.local scripts/seed.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.4",
+    "@node-rs/argon2": "^2.0.0",
+    "drizzle-orm": "^0.45.2",
+    "e2b": "^2.35.0",
+    "next": "^15.0.0",
+    "pg": "^8.13.0",
+    "pg-boss": "^10.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.1.10"
+  }
+}
