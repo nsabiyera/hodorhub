@@ -253,7 +253,9 @@ export async function getThread(
   const corpVerified = orgRefs.find((o) => o.id === p.corporationOrgId)?.status === 'verified';
 
   const authorIds = window.map((m) => m.authorUserId);
-  const authors = new Map((await getUserRefs(authorIds, db)).map((u) => [u.id, u.email]));
+  // US-1.5 — `label` is Identity's one definition of how a person is named:
+  // a display name, else the email, else 'Former member' for an erased author.
+  const authors = new Map((await getUserRefs(authorIds, db)).map((u) => [u.id, u.label]));
 
   return {
     threadId,

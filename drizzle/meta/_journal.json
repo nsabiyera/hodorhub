@@ -134,6 +134,13 @@
       "when": 1788530721187,
       "tag": "0018_simple_micromax",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788547476252,
+      "tag": "0019_vengeful_mentallo",
+      "breakpoints": true
     }
   ]
 }

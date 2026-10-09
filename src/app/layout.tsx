@@ -34,6 +34,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               {session ? (
                 <>
                   <a href="/notifications">Messages</a>
+                  <a href="/team">Your team</a>
+                  <a href="/profile">Your profile</a>
                   <SignOutButton />
                 </>
               ) : (

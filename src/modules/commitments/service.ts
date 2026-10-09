@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db as defaultDb } from '@/db';
 import {
@@ -126,11 +126,25 @@ export async function pledgeResources(
 
 /** Cross-module reference to a pledge (used by Delivery to resolve the owning corp). */
 export async function getPledgeRef(pledgeId: string, exec: Executor = defaultDb) {
-  const p = await exec.query.pledges.findFirst({
-    where: eq(pledges.id, pledgeId),
+  // Reimplemented over the batched read so there is ONE definition in two
+  // shapes (the US-8.3 hasCorporateRelationship rule).
+  const [p] = await getPledgeRefs([pledgeId], exec);
+  return p ?? null;
+}
+
+/**
+ * US-1.5 — batched sibling of `getPledgeRef`. Delivery resolves which
+ * corporation a set of workspaces belongs to when summing a volunteer's load,
+ * and one query per workspace would be an N+1 on a roster page.
+ *
+ * Carries no authorisation, same as `getPledgeRef`: callers establish standing.
+ */
+export async function getPledgeRefs(pledgeIds: string[], exec: Executor = defaultDb) {
+  if (pledgeIds.length === 0) return [];
+  return exec.query.pledges.findMany({
+    where: inArray(pledges.id, [...new Set(pledgeIds)]),
     columns: { id: true, projectId: true, corporationOrgId: true, status: true },
   });
-  return p ?? null;
 }
 
 /** US-5.3 — charity views pledges on its project. */

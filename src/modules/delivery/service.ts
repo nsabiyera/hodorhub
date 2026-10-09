@@ -10,6 +10,7 @@ import {
 } from '@/modules/identity';
 import { getPledgeRef } from '@/modules/commitments';
 import { getProjectRef } from '@/modules/projects';
+import { volunteerLoadFor, type VolunteerLoad } from './availability';
 
 /**
  * Delivery service — US-6.1 (allocate volunteers), US-6.2 (log hours),
@@ -50,7 +51,7 @@ export async function allocateVolunteer(
   volunteerUserId: string,
   hoursPerWeek: number,
   db: Db = defaultDb,
-): Promise<{ allocationId: string }> {
+): Promise<{ allocationId: string; load: VolunteerLoad }> {
   z.number().int().min(1).max(40).parse(hoursPerWeek);
   return db.transaction(async (tx) => {
     const corp = await corpForWorkspace(tx, workspaceId);
@@ -59,15 +60,49 @@ export async function allocateVolunteer(
     const vm = await findMembership(volunteerUserId, corp, tx);
     if (!vm) throw new InvalidStateError('The volunteer must belong to your organisation.');
 
+    // US-1.5 — the load BEFORE this allocation, so the notification fires only
+    // on a transition into (or a worsening of) over-allocation rather than on
+    // every subsequent edit.
+    const [before] = await volunteerLoadFor(tx, corp, [volunteerUserId]);
+
+    // Upsert: one person, one workspace, one weekly commitment. A second row is
+    // not a second commitment, it is a re-allocation — so moving someone from 4
+    // to 6 hours means 6, not 10, which is the only reading a manager expects,
+    // and a double-clicked button becomes idempotent. `onConflictDoUpdate`
+    // never `DoNothing`: DO NOTHING returns zero rows on conflict.
     const [row] = await tx
       .insert(allocations)
       .values({ deliveryWorkspaceId: workspaceId, volunteerUserId, hoursPerWeek })
+      .onConflictDoUpdate({
+        target: [allocations.deliveryWorkspaceId, allocations.volunteerUserId],
+        set: { hoursPerWeek },
+      })
       .returning({ id: allocations.id });
     await tx.insert(outbox).values({
       eventType: 'VolunteerAllocated',
       payload: { workspaceId, volunteerUserId, allocationId: row!.id },
     });
-    return { allocationId: row!.id };
+
+    const [load] = await volunteerLoadFor(tx, corp, [volunteerUserId]);
+    // Over-allocation WARNS, it never refuses: the employer authorises the
+    // donation (the same authority direction as US-6.2a), and a hard cap would
+    // bind only the people honest enough to state their hours.
+    const worsened = load?.overAllocated === true && (load.overBy ?? 0) > (before?.overBy ?? 0);
+    if (worsened) {
+      await tx.insert(outbox).values({
+        eventType: 'VolunteerOverAllocated',
+        payload: {
+          workspaceId,
+          volunteerUserId,
+          corporationOrgId: corp,
+          allocatedHoursPerWeek: load.allocatedHoursPerWeek,
+          statedWeeklyHours: load.statedWeeklyHours,
+          overBy: load.overBy,
+        },
+      });
+    }
+    // `volunteerLoadFor` with one id always yields one row, so this is total.
+    return { allocationId: row!.id, load: load! };
   });
 }
 

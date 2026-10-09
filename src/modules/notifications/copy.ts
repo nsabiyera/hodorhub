@@ -52,6 +52,16 @@ export const NOTIFICATION_COPY = {
     title: 'Your hours were declined',
     body: (p) => reasonOf(p, 'Please review the entry and resubmit.'),
   },
+  'hours.over_allocated': {
+    title: 'You are allocated more hours than you offered',
+    body: (p) => {
+      const over = typeof p.overBy === 'number' ? p.overBy : null;
+      const stated = typeof p.statedWeeklyHours === 'number' ? p.statedWeeklyHours : null;
+      return over !== null && stated !== null
+        ? `Your employer has allocated ${over} hour${over === 1 ? '' : 's'} a week beyond the ${stated} you offered. They can still go ahead — but tell them if that does not work.`
+        : 'Your employer has allocated more hours a week than you offered. They can still go ahead — but tell them if that does not work.';
+    },
+  },
   'member.invited': {
     title: 'You were invited to a workspace',
     body: () => 'You have been added to an organisation on HodorHub.',

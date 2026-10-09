@@ -4,6 +4,7 @@ export {
   pledgeResources,
   listPledgesForProject,
   getPledgeRef,
+  getPledgeRefs,
   acceptPledge,
   declinePledge,
   pledgeSchema,

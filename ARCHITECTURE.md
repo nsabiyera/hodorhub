@@ -107,6 +107,8 @@ graph LR
     Delivery --> events
     Projects --> events
     AgentDelivery --> events
+    Delivery -.availability.-> Identity
+    Reporting --> Identity
     Messaging --> Commitments
     Privacy -.redacts.-> Messaging
     Messaging --> events
@@ -116,7 +118,7 @@ graph LR
 
 | Module | Owns | Key backlog stories |
 |--------|------|---------------------|
-| **Identity & Org** | users, organisations (charity/corporation), memberships, roles, verification requests, sessions, **per-org branding config** (§3) | US-1.1, 1.2, 1.3 |
+| **Identity & Org** | users, organisations (charity/corporation), memberships, roles, verification requests, sessions, **per-org branding config** (§3), **display names + membership profiles (skills/seniority/hours) and the skills registry** | US-1.1, 1.2, 1.3, 1.5 |
 | **Projects** | projects, resource needs, lifecycle state machine | US-2.1, 2.2, 2.4 |
 | **Engagement** | on-platform supports; social connections (encrypted OAuth tokens); ingested `engagement_events` (provisional/confirmed) | US-3.1–3.5 |
 | **Scoring** | trust/anti-gaming evaluation, support & momentum computation, materialised `project_scores` | US-3.5, 9.3 |
@@ -128,6 +130,19 @@ graph LR
 | **Messaging** | `message_threads` + `messages` — one conversation per (project, corporation), tied to the work | US-8.3 |
 | **Admin** | verification queue, score-anomaly review, **agent-run kill switch** (US-11.5) | US-1.3, 9.3, 11.5 |
 | **Billing & Entitlements** | plans, subscriptions, `hasEntitlement(org, feature)` gating — incl. branding tier (§3) | US-10.1–10.4 |
+
+**Volunteer profiles (US-1.5).** A **display name** is a column on `users`
+(person-level, one human one name); **skills, seniority and offered hours** hang
+off `membership_profiles`, keyed on the membership, because donated hours are one
+employer's hours to donate — so nothing is copied between tenants and releasing a
+seat takes that employer's copy with it by `ON DELETE CASCADE`. An **absent row
+means *no stated availability*, which is not `0`**, and no read may conflate them.
+**Delivery computes over-allocation**, not Identity: Delivery already depends on
+Identity, so the arithmetic crossing the line the other way would be a cycle. The
+sum is **same-employer only** — a global sum would leak the existence of a second
+membership. It **warns, never refuses**: the employer authorises the donation. The
+charity's view is unchanged (US-6.3's `Volunteer 1..n`), and none of this data
+reaches Scoring or Discovery.
 
 **In-context messaging (US-8.3).** Messaging owns `message_threads` and
 `messages` and nothing else. Three rules are structural rather than procedural.
@@ -226,6 +241,11 @@ hour_logs(id, allocation_id, volunteer_user_id, hours, note, status[pending|appr
 
 notifications(id, user_id, type, payload, read_at, created_at)
 notification_preferences(id, user_id, kind, in_app, email, updated_at)   -- absent row = platform default
+users(… , display_name)                              -- US-1.5; null = fall back to email
+membership_profiles(membership_id PK -> memberships ON DELETE CASCADE, weekly_hours, seniority,
+                    note, created_at, updated_at)    -- absent row = NO stated availability (not 0)
+membership_profile_skills(membership_id, skill_code) -- PK(membership_id, skill_code)
+allocations(… )                                      -- + unique(delivery_workspace_id, volunteer_user_id)
 message_threads(id, project_id, corporation_org_id, created_at, last_message_at)
                                                     -- unique(project_id, corporation_org_id)
 messages(id, thread_id, seq bigserial, author_user_id, author_org_id, body, redacted_at, created_at)
@@ -255,6 +275,7 @@ Representative events and their subscribers:
 | `MilestoneApproved` / `MilestoneChangesRequested` / `MilestoneRejected` | Agent Delivery | Notifications | **never Scoring** |
 | `RunStatusChanged` (kill switch) | Agent Delivery | Notifications, Admin | **never Scoring** |
 | `MessagePosted` | Messaging | Notifications (→ the *other* organisation) | **never Scoring** |
+| `VolunteerOverAllocated` | Delivery | Notifications (→ the volunteer alone) | **never Scoring** |
 
 Worker classes: **Ingestion** (webhook intake + rate-limited pollers → `engagement_events` provisional), **Scoring** (trust eval, anomaly detection, hourly momentum-decay recompute), **Notifications** (fan-out to in-app + email — the only outbox consumer currently wired; see below).
 

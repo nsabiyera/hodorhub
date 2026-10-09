@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
+import { personLabel } from './profile';
 import { db as defaultDb } from '@/db';
 import {
   organisations,
@@ -277,6 +278,13 @@ export function findMembership(userId: string, organisationId: string, db: Execu
 export async function getUserOrg(userId: string, db: Executor = defaultDb) {
   const m = await db.query.memberships.findFirst({
     where: eq(memberships.userId, userId),
+    // ORDERED, deliberately. Without it Postgres may return a different
+    // membership on different calls, so a multi-organisation user would see
+    // one employer on one page and another on the next — and (US-1.5) could
+    // save their availability against a different employer each time. The
+    // choice is still arbitrary until there is an organisation switcher, but
+    // it is at least STABLE and the same everywhere.
+    orderBy: [asc(memberships.id)],
   });
   if (!m) return null;
   const org = await db.query.organisations.findFirst({
@@ -378,14 +386,29 @@ export async function listMembers(
   const rows = await db.query.memberships.findMany({
     where: eq(memberships.organisationId, organisationId),
   });
-  const users_ = await Promise.all(
-    rows.map((m) => db.query.users.findFirst({ where: eq(users.id, m.userId) })),
-  );
-  return rows.map((m, i) => ({
-    userId: m.userId,
-    role: m.role,
-    email: users_[i]?.email ?? null,
-  }));
+  if (rows.length === 0) return [];
+  // One batched read, not one per member: this was an N+1 that grew with the
+  // roster, and US-1.5 puts it behind a page that lists everyone.
+  const memberUsers = await db.query.users.findMany({
+    where: inArray(
+      users.id,
+      rows.map((m) => m.userId),
+    ),
+    columns: { id: true, email: true, displayName: true, deletedAt: true },
+  });
+  const byId = new Map(memberUsers.map((u) => [u.id, u]));
+  return rows.map((m) => {
+    const u = byId.get(m.userId);
+    return {
+      userId: m.userId,
+      role: m.role,
+      // The admin keeps the email: it is the key they invited by and the only
+      // way to re-invite or contact someone (US-1.5).
+      email: u?.email ?? null,
+      displayName: u?.displayName ?? null,
+      label: u ? personLabel(u) : 'Former member',
+    };
+  });
 }
 
 /**
@@ -470,10 +493,22 @@ export async function getOrganisationRefs(
 export async function getUserRefs(
   ids: string[],
   exec: Executor = defaultDb,
-): Promise<{ id: string; email: string }[]> {
+): Promise<
+  { id: string; email: string; displayName: string | null; label: string; erased: boolean }[]
+> {
   if (ids.length === 0) return [];
-  return exec.query.users.findMany({
+  const rows = await exec.query.users.findMany({
     where: inArray(users.id, [...new Set(ids)]),
-    columns: { id: true, email: true },
+    columns: { id: true, email: true, displayName: true, deletedAt: true },
   });
+  // `label` is derived HERE rather than by each caller: US-8.3's authorLabel and
+  // US-6.3's board would otherwise each carry their own copy of "how a person
+  // is named", and one of them would drift.
+  return rows.map((u) => ({
+    id: u.id,
+    email: u.email,
+    displayName: u.displayName,
+    label: personLabel(u),
+    erased: u.deletedAt !== null,
+  }));
 }

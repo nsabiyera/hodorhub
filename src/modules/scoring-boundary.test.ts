@@ -88,6 +88,40 @@ describe('merit-integrity boundary (US-RG, structural)', () => {
     }
   });
 
+  it('scoring/discovery source never references volunteer profiles (US-1.5)', () => {
+    // Who an employee is, what they can do and how much time they offered must
+    // never move a project up the rankings. Merit is public support and
+    // delivered work. Seniority in particular ranks nobody.
+    //
+    // NOTE the doubled backslashes: '\b' in a single-quoted string is a
+    // BACKSPACE, not a word boundary, and a guard built that way matches
+    // nothing and passes vacuously. That bug shipped once in this file.
+    const forbidden = new RegExp(
+      [
+        'membership_profiles',
+        'membershipProfiles',
+        'membership_profile_skills',
+        'membershipProfileSkills',
+        'display_name',
+        'displayName',
+        'VOLUNTEER_SKILLS',
+        'SENIORITY_LEVELS',
+        '\\bseniority\\b',
+      ].join('|'),
+    );
+    // Positive control FIRST: a regex that matches nothing anywhere is a guard
+    // that proves nothing, and this file has shipped one of those before.
+    expect(read('src/modules/identity/skills.ts')).toMatch(forbidden);
+    for (const f of [
+      'src/modules/engagement/service.ts',
+      'src/modules/engagement/social.ts',
+      'src/modules/scoring/service.ts',
+      'src/modules/discovery/service.ts',
+    ]) {
+      expect(read(f)).not.toMatch(forbidden);
+    }
+  });
+
   it('scoring/discovery source never references agent-delivery run tables', () => {
     const forbidden =
       /agent_delivery_runs|agentDeliveryRuns|run_budgets|runBudgets|run_budget_ledger|run_milestones|runMilestones|agent_steps|agentSteps|compute_pledges|computePledges|deployed_environments|deployedEnvironments/;

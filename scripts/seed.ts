@@ -10,6 +10,9 @@ import {
   registerCharity,
   registerCorporation,
   approveVerification,
+  inviteMember,
+  setDisplayName,
+  saveMyProfile,
 } from '@/modules/identity';
 
 const PASSWORD = 'Password123!';
@@ -45,6 +48,31 @@ async function ensureCorp(adminId: string): Promise<void> {
     emailDomain: 'hodorhub.test',
   });
   await approveVerification(co.verificationRequestId, adminId);
+
+  // US-1.5 — a named manager, and two volunteers in the two states that matter:
+  // one who has filled a profile in, one who has not. Seeding both keeps the
+  // "no stated availability" case visible on the roster, which is exactly the
+  // one a developer would otherwise never see.
+  await setDisplayName(co.userId, 'Carlos Mendes');
+  const filled = await inviteMember(
+    co.userId,
+    co.organisationId,
+    'dana@hodorhub.test',
+    'volunteer',
+  );
+  await setDisplayName(filled.userId, 'Dana Okafor');
+  await saveMyProfile(filled.userId, {
+    weeklyHours: 6,
+    skills: ['frontend-development', 'accessibility'],
+    seniority: 'experienced',
+    note: 'Happiest on accessibility work.',
+  });
+  const none = await inviteMember(co.userId, co.organisationId, 'sam@hodorhub.test', 'volunteer');
+  // The third state, and the one the null-vs-0 discipline exists for: someone
+  // who has explicitly offered NO hours, which the roster must show
+  // differently from someone who has said nothing at all.
+  await saveMyProfile(none.userId, { weeklyHours: 0, skills: ['volunteer-coordination'] });
+  await inviteMember(co.userId, co.organisationId, 'unsaid@hodorhub.test', 'volunteer');
 }
 
 async function describe(email: string) {

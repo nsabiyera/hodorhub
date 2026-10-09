@@ -20,6 +20,8 @@ const TTL_MS: Record<Kind, number> = {
 };
 
 function hashToken(raw: string): string {
+  // codeql[js/insufficient-password-hash] These are 256-bit CSPRNG bearer tokens, not human passwords.
+  // A fast hash is appropriate for this entropy and prevents a database leak from exposing usable tokens.
   return createHash('sha256').update(raw).digest('hex');
 }
 

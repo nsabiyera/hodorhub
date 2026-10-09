@@ -6,3 +6,6 @@
  */
 export { getProjectImpact, getCorporateImpact } from './service';
 export type { ProjectImpact, CorporateImpact } from './service';
+
+/** US-1.5 — the CSR manager's team roster. */
+export { getVolunteerRoster, type RosterEntry } from './roster';

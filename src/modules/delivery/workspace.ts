@@ -416,7 +416,9 @@ async function labelAllocations(
   const emails = new Map<string, string | null>();
   if (p.side === 'corporation') {
     const members = await listMembers(actingUserId, p.corporationOrgId, exec as Db);
-    for (const m of members) emails.set(m.userId, m.email);
+    // US-1.5 — the display name where there is one. The charity branch below
+    // is untouched: they still see `Volunteer N`.
+    for (const m of members) emails.set(m.userId, m.label);
   }
   return allocs.map((a, i) => ({
     id: a.id,
