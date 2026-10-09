@@ -204,6 +204,12 @@ export async function dispatchEvent(
       );
       break;
     }
+    case 'VolunteerOverAllocated': {
+      // US-1.5 — the volunteer alone. Their manager made the call knowingly and
+      // saw the flag; the charity must never learn an employee's availability.
+      await create(ctx, (p.volunteerUserId as string) ?? null, 'hours.over_allocated', p);
+      break;
+    }
     case 'DeliveryTaskAssigned': {
       // US-6.3 — a coordinator put a task on a volunteer. The volunteer is the
       // only one told: the coordinator already knows, they did it.

@@ -36,3 +36,34 @@ export {
 } from './tokens';
 
 export * from './errors';
+
+/** US-1.5 — volunteer profiles, display names and the skills registry. */
+export {
+  profileSchema,
+  displayNameSchema,
+  getMyProfile,
+  saveMyProfile,
+  deleteMyProfile,
+  setDisplayName,
+  listMembershipProfiles,
+  getMembershipAvailability,
+  deleteMembershipProfilesForUser,
+  type ProfileInput,
+  type MyProfileView,
+  type MembershipProfileEntry,
+} from './profile';
+
+export {
+  VOLUNTEER_SKILLS,
+  VOLUNTEER_SKILL_CODES,
+  SENIORITY_LEVELS,
+  SENIORITY_CODES,
+  getSkill,
+  getSeniority,
+  skillsForCategory,
+  categoriesForSkills,
+  type VolunteerSkill,
+  type VolunteerSkillCode,
+  type SeniorityCode,
+  type SkillCategory,
+} from './skills';

@@ -52,6 +52,14 @@ import { GET as prefsGetRoute, PUT as prefsPutRoute } from './notification-prefe
 import { POST as postMessageRoute } from './projects/[id]/messages/route';
 import { GET as conversationsRoute } from './projects/[id]/conversations/route';
 import { GET as threadRoute } from './threads/[id]/route';
+import {
+  GET as profileGetRoute,
+  PUT as profilePutRoute,
+  DELETE as profileDeleteRoute,
+} from './profile/route';
+import { PUT as displayNameRoute } from './display-name/route';
+import { GET as skillsRoute } from './skills/route';
+import { GET as rosterRoute } from './organisations/[id]/roster/route';
 
 function authAs(userId: string, isPlatformAdmin = false) {
   cookieValue = signSession(newSession(userId, isPlatformAdmin));
@@ -743,5 +751,130 @@ describe('Messaging routes (US-8.3)', () => {
       where: eq(outbox.eventType, 'MessagePosted'),
     });
     expect(events).toHaveLength(10);
+  });
+});
+
+// US-1.5 — profile, display name and roster routes.
+describe('Volunteer profile routes (US-1.5)', () => {
+  const put = (body: unknown) =>
+    new Request('http://localhost/api', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  async function aCorp(tag: string) {
+    const admin = await createPlatformAdmin(`profadmin-${tag}@hodorhub.com`, 'admin-password-1');
+    const corp = await registerCorporation({
+      email: `carlos-${tag}@prof${tag}.com`,
+      password: 'another-strong-pw',
+      companyName: `Prof ${tag}`,
+      emailDomain: `prof${tag}.com`,
+    });
+    await approveVerification(corp.verificationRequestId, admin);
+    return { admin, corp };
+  }
+
+  it('needs a session for anything personal, but the registry is public', async () => {
+    signOut();
+    expect((await profileGetRoute()).status).toBe(401);
+    expect((await profilePutRoute(put({}))).status).toBe(401);
+    expect((await displayNameRoute(put({ displayName: 'X' }))).status).toBe(401);
+    expect(
+      (await rosterRoute(new Request('http://localhost/api'), params(crypto.randomUUID()))).status,
+    ).toBe(401);
+    // The skills list is a code-held registry of public labels: the form is
+    // derived from it, which is what stops a second drifting copy in the client.
+    const skills = await skillsRoute();
+    expect(skills.status).toBe(200);
+    const body = (await skills.json()) as { skills: unknown[]; seniority: unknown[] };
+    expect(body.skills.length).toBeGreaterThan(0);
+    expect(body.seniority.length).toBeGreaterThan(0);
+  });
+
+  it('saves and clears a profile through the API', async () => {
+    const { corp } = await aCorp('save');
+    authAs(corp.userId);
+
+    const empty = (await (await profileGetRoute()).json()) as {
+      membership: { hasProfile: boolean; weeklyHours: number | null };
+    };
+    expect(empty.membership).toMatchObject({ hasProfile: false, weeklyHours: null });
+
+    const saved = await profilePutRoute(
+      put({ weeklyHours: 4, skills: ['carpentry'], seniority: 'lead' }),
+    );
+    expect(saved.status).toBe(200);
+    expect((await saved.json()).membership).toMatchObject({ weeklyHours: 4, hasProfile: true });
+
+    const cleared = await profileDeleteRoute();
+    expect(cleared.status).toBe(200);
+    expect((await cleared.json()).membership).toMatchObject({
+      hasProfile: false,
+      weeklyHours: null,
+    });
+  });
+
+  it('rejects a skill outside the registry with a field error, not a 500', async () => {
+    const { corp } = await aCorp('reject');
+    authAs(corp.userId);
+    const res = await profilePutRoute(put({ weeklyHours: 4, skills: ['telepathy'] }));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: string;
+      details: { fieldErrors: Record<string, string[]> };
+    };
+    expect(body.error).toBe('validation');
+    // The AC promises a FIELD-level error, so assert the field — a bare 400
+    // would also be produced by a malformed body or the wrong content type.
+    expect(body.details.fieldErrors.skills?.join(' ')).toContain('telepathy');
+  });
+
+  it('rejects the same skill twice with 400, not a raw constraint 500', async () => {
+    // The rows are inserted verbatim, so without a uniqueness check this is a
+    // primary-key violation surfacing as {"error":"internal"} on a public route.
+    const { corp } = await aCorp('dupe');
+    authAs(corp.userId);
+    const res = await profilePutRoute(put({ weeklyHours: 4, skills: ['carpentry', 'carpentry'] }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('validation');
+  });
+
+  it('requires at least one skill and refuses impossible hours', async () => {
+    const { corp } = await aCorp('valid');
+    authAs(corp.userId);
+    expect((await profilePutRoute(put({ weeklyHours: 4, skills: [] }))).status).toBe(400);
+    expect((await profilePutRoute(put({ weeklyHours: 200, skills: ['carpentry'] }))).status).toBe(
+      400,
+    );
+  });
+
+  it('serves the roster to an admin and 404s a non-member', async () => {
+    const { admin, corp } = await aCorp('roster');
+    authAs(corp.userId);
+    const ok = await rosterRoute(new Request('http://localhost/api'), params(corp.organisationId));
+    expect(ok.status).toBe(200);
+    // Exactly one, not "more than zero": the fixture has a single member, so
+    // `> 0` would also pass if the roster started returning the whole table.
+    expect((await ok.json()).entries).toHaveLength(1);
+
+    // A platform admin holds no membership, so the roster does not exist to them.
+    authAs(admin, true);
+    expect(
+      (await rosterRoute(new Request('http://localhost/api'), params(corp.organisationId))).status,
+    ).toBe(404);
+  });
+
+  it('lets someone with no organisation still set a display name', async () => {
+    // A supporter or a platform admin has no membership, but must still be
+    // nameable — which is why display name is its own endpoint.
+    const admin = await createPlatformAdmin('lonely@hodorhub.com', 'admin-password-1');
+    authAs(admin, true);
+    expect((await profilePutRoute(put({ weeklyHours: 1, skills: ['carpentry'] }))).status).toBe(
+      403,
+    );
+    const named = await displayNameRoute(put({ displayName: 'The Operator' }));
+    expect(named.status).toBe(200);
+    expect((await named.json()).label).toBe('The Operator');
   });
 });

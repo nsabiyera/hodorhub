@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   index,
   bigserial,
+  primaryKey,
   check,
   date,
 } from 'drizzle-orm/pg-core';
@@ -138,6 +139,14 @@ export const users = pgTable('users', {
   // Platform operator (Admin persona) — not an org member. Gates the
   // verification queue (US-1.3). Set out-of-band, never via public signup.
   isPlatformAdmin: boolean('is_platform_admin').notNull().default(false),
+  /**
+   * US-1.5 — how a person is named to other humans. A COLUMN rather than a
+   * table because `getUserRefs` already selects from `users` on the hot path,
+   * and because erasure gets stronger: the name is nulled in the same UPDATE
+   * that anonymises the email, so there is no separate sweep line to forget.
+   * null = never set; every surface falls back to the email, so no backfill.
+   */
+  displayName: text('display_name'),
   // GDPR: consent captured at signup; deletedAt set on right-to-erasure.
   consentedAt: timestamp('consented_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -157,6 +166,65 @@ export const memberships = pgTable(
     role: memberRole('role').notNull(),
   },
   (t) => ({ uniqueMember: unique().on(t.userId, t.organisationId) }),
+);
+
+/**
+ * US-1.5 — a volunteer's skills, seniority and offered weekly hours.
+ *
+ * Keyed on **`membership_id`**, not `(user_id, organisation_id)`: donated hours
+ * are one employer's hours to donate, so "this profile belongs to this
+ * membership" stops being a rule somebody must remember and becomes the key.
+ * It also gives US-10.7's "release the seat, the profile goes with it" for free
+ * via ON DELETE CASCADE, rather than as a line in `removeMember` that a
+ * refactor could drop.
+ *
+ * An ABSENT ROW means "no stated availability", which is NOT the same as
+ * `weekly_hours = 0` ("I have offered none"). Nothing may render or sum an
+ * absent row as 0 — the same discipline as pending-vs-approved hours.
+ */
+export const membershipProfiles = pgTable(
+  'membership_profiles',
+  {
+    membershipId: uuid('membership_id')
+      .primaryKey()
+      .references(() => memberships.id, { onDelete: 'cascade' }),
+    weeklyHours: integer('weekly_hours').notNull(),
+    // A SENIORITY_LEVELS code, or null. Text, not an enum: the code registry is
+    // the authority and adding a level must not need a migration.
+    seniority: text('seniority'),
+    /** Free text, DISPLAYED but never matched on (US-4.3 matches the registry). */
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    sane: check('membership_profiles_weekly_hours', sql`${t.weeklyHours} between 0 and 168`),
+  }),
+);
+
+/**
+ * One row per skill a volunteer has claimed. A join table rather than `text[]`
+ * or jsonb: US-4.3 wants an indexed equality join over `skill_code`, and this
+ * is somewhere to hang a future level/years column without reshaping an array.
+ * Migrating from an array to rows later would be a backfill against live data.
+ *
+ * `skill_code` is text, not an enum — the code registry is the single authority
+ * (same rule as `notification_preferences.kind`), so a row holding a retired
+ * code is simply invisible to reads rather than a migration problem.
+ */
+export const membershipProfileSkills = pgTable(
+  'membership_profile_skills',
+  {
+    membershipId: uuid('membership_id')
+      .notNull()
+      .references(() => membershipProfiles.membershipId, { onDelete: 'cascade' }),
+    skillCode: text('skill_code').notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.membershipId, t.skillCode] }),
+    // Named now for the US-4.3 reverse lookup ("who can do X?").
+    bySkill: index('membership_profile_skills_skill_idx').on(t.skillCode),
+  }),
 );
 
 export const verificationRequests = pgTable('verification_requests', {
@@ -572,16 +640,32 @@ export const deliveryWorkspaces = pgTable('delivery_workspaces', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const allocations = pgTable('allocations', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  deliveryWorkspaceId: uuid('delivery_workspace_id')
-    .notNull()
-    .references(() => deliveryWorkspaces.id),
-  volunteerUserId: uuid('volunteer_user_id')
-    .notNull()
-    .references(() => users.id),
-  hoursPerWeek: integer('hours_per_week').notNull(),
-});
+export const allocations = pgTable(
+  'allocations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    deliveryWorkspaceId: uuid('delivery_workspace_id')
+      .notNull()
+      .references(() => deliveryWorkspaces.id),
+    volunteerUserId: uuid('volunteer_user_id')
+      .notNull()
+      .references(() => users.id),
+    hoursPerWeek: integer('hours_per_week').notNull(),
+  },
+  (t) => ({
+    /**
+     * US-1.5 — one allocation per person per workspace. Without this a
+     * volunteer could be allocated twice to the same board, which silently
+     * DOUBLE-COUNTS in the availability sum this story introduces. Tolerating
+     * it would force a MAX() that becomes a second definition of "allocated
+     * hours", disagreeing with `effortFor` on the same rows.
+     */
+    onePerWorkspace: unique('allocations_one_per_workspace').on(
+      t.deliveryWorkspaceId,
+      t.volunteerUserId,
+    ),
+  }),
+);
 
 export const hourLogs = pgTable('hour_logs', {
   id: uuid('id').primaryKey().defaultRandom(),

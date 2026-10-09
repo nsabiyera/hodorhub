@@ -8,7 +8,7 @@ import {
   onPlatformSupports,
   engagementEvents,
 } from '@/db/schema';
-import { NotFoundError } from '@/modules/identity';
+import { NotFoundError, deleteMembershipProfilesForUser } from '@/modules/identity';
 import { recomputeProjectScore } from '@/modules/engagement';
 import { redactMessagesByAuthor } from '@/modules/messaging';
 
@@ -49,12 +49,18 @@ export async function eraseUser(userId: string, db: Db = defaultDb): Promise<voi
     // organisation's record of what was agreed. The row, its order and its org
     // attribution survive; the person's words do not.
     await redactMessagesByAuthor(userId, tx);
+    // US-1.5 — a skills profile is one-sided, so unlike a message it is DELETED
+    // rather than redacted. Every organisation's copy goes in one erasure.
+    await deleteMembershipProfilesForUser(userId, tx);
 
     // Anonymise the account (email kept unique + unusable; password unusable).
     await tx
       .update(users)
       .set({
         email: `erased-${userId}@erased.invalid`,
+        // US-1.5 — the name goes in the same statement as the email, so an
+        // erased person cannot be named on any surface that outlives them.
+        displayName: null,
         passwordHash: 'erased',
         emailVerifiedAt: null,
         isPlatformAdmin: false,

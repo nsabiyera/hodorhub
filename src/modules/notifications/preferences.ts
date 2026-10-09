@@ -66,8 +66,9 @@ export const NOTIFICATION_KINDS: NotificationKind[] = [
   {
     code: 'hours',
     label: 'Donated hours',
-    description: 'Your logged hours are approved or declined.',
-    types: ['hours.approved', 'hours.rejected'],
+    description:
+      'Your logged hours are approved or declined, or you are allocated beyond the hours you offered.',
+    types: ['hours.approved', 'hours.rejected', 'hours.over_allocated'],
     essential: false,
     defaults: { inApp: true, email: true },
   },
