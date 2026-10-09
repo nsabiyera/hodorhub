@@ -1,0 +1,16 @@
+# Caddy = free automatic HTTPS (Let's Encrypt, HTTP-01) + reverse proxy.
+#
+# MVP scope is DEFAULT-BRAND ONLY (ARCHITECTURE.md §3, locked). We serve the
+# neutral marketplace on the primary domain with an automatic cert. Set the
+# domain by editing the site address below (or templating it in your deploy).
+#
+# DEFERRED to Release 2 (intentionally NOT enabled — see DevOps review):
+#   - Wildcard *.hodorhub.com subdomain certs (need a DNS-01 provider plugin).
+#   - Enterprise custom-domain on-demand TLS (needs the /api/tenants/verify-domain
+#     allowlist backed by org_branding.domain_verified_at). Enabling on-demand TLS
+#     without that endpoint is a cert-issuance DoS vector — do not add it early.
+
+hodorhub.com {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

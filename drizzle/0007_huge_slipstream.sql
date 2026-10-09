@@ -1,0 +1,2 @@
+CREATE TYPE "public"."project_category" AS ENUM('software', 'design', 'construction', 'marketing', 'fundraising', 'events', 'research', 'legal', 'operations');--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "category" "project_category";

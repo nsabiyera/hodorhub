@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "pledges_one_accepted_per_project" ON "pledges" USING btree ("project_id") WHERE "pledges"."status" = 'accepted';

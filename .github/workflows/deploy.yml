@@ -1,0 +1,65 @@
+name: Deploy
+
+# Runs after CI succeeds on main (gated), or manually. Authenticates to GCP via
+# Workload Identity Federation (keyless), builds + pushes the image to Artifact
+# Registry tagged with the commit SHA, runs the migration Job, then rolls out the
+# web + worker Cloud Run services. See infra/README.md for the required
+# secrets/vars (GCP_WIF_PROVIDER, GCP_DEPLOY_SA, GCP_PROJECT, GCP_REGION,
+# DEPLOY_ENABLED).
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for Workload Identity Federation
+
+env:
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  deploy:
+    # Only on a green CI run (or manual dispatch), and only when explicitly enabled.
+    if: ${{ (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') && vars.DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      REGION: ${{ vars.GCP_REGION }}
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/hodorhub/app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & push image
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build -t "${IMAGE}:${SHA}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${SHA}"
+          docker push "${IMAGE}:latest"
+
+      - name: Run migrations (one-shot job)
+        run: |
+          gcloud run jobs update hodorhub-migrate --image "${IMAGE}:${SHA}" --region "${REGION}" --quiet
+          gcloud run jobs execute hodorhub-migrate --region "${REGION}" --wait
+
+      - name: Deploy web + worker
+        run: |
+          gcloud run deploy hodorhub-web --image "${IMAGE}:${SHA}" --region "${REGION}" --quiet
+          gcloud run deploy hodorhub-worker --image "${IMAGE}:${SHA}" --region "${REGION}" --quiet
+
+      - name: Post-deploy health check
+        run: |
+          URL=$(gcloud run services describe hodorhub-web --region "${REGION}" --format='value(status.url)')
+          curl -fsS "${URL}/api/health" || { echo "health check failed for ${SHA}"; exit 1; }

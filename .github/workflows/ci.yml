@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hodorhub
+          POSTGRES_PASSWORD: hodorhub
+          POSTGRES_DB: hodorhub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hodorhub"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      NODE_ENV: test
+      PUBLIC_BASE_URL: http://localhost:3000
+      DATABASE_URL: postgres://hodorhub:hodorhub@localhost:5432/hodorhub
+      # Non-secret CI-only values; real secrets live in GitHub Actions secrets.
+      APP_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      SESSION_SECRET: ci-session-secret-ci-session-secret-32
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:coverage
+      # Integration tests run migrations against the Postgres service, then exercise
+      # the module services end-to-end (the harness resets rows between tests).
+      - run: npm run test:integration
+      - run: npm run build:workers
+      - run: npm run build
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Fail the build on high/critical vulns in PRODUCTION deps (shipped code).
+      # Dev-tooling advisories are tracked by Dependabot, not build-blocking.
+      - run: npm audit --omit=dev --audit-level=high
